@@ -8,6 +8,13 @@ use crate::storage::page::{blank_page, catalog_page, catalog_payload, DbHeader, 
 use crate::storage::recovery::recover;
 use crate::storage::wal::Wal;
 
+#[derive(Debug, Clone)]
+pub struct PagerSavepoint {
+    dirty: BTreeMap<u32, Vec<u8>>,
+    cache: BTreeMap<u32, Vec<u8>>,
+    header: DbHeader,
+}
+
 pub struct Pager {
     path: PathBuf,
     file: File,
@@ -164,6 +171,20 @@ impl Pager {
         self.header = DbHeader::decode(&header_page)?;
         self.cache.insert(0, header_page);
         Ok(())
+    }
+
+    pub fn savepoint(&self) -> PagerSavepoint {
+        PagerSavepoint {
+            dirty: self.dirty.clone(),
+            cache: self.cache.clone(),
+            header: self.header.clone(),
+        }
+    }
+
+    pub fn restore_savepoint(&mut self, savepoint: PagerSavepoint) {
+        self.dirty = savepoint.dirty;
+        self.cache = savepoint.cache;
+        self.header = savepoint.header;
     }
 
     pub fn file_path(&self) -> &Path {

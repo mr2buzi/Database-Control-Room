@@ -1,6 +1,6 @@
 use crate::ast::{
     CreateIndexStatement, CreateTableStatement, DeleteStatement, InsertStatement, MetaCommand,
-    Projection, SelectStatement, Statement,
+    Projection, SelectStatement, Statement, UpdateStatement,
 };
 use crate::common::{ColumnDef, ColumnType, Error, Filter, FilterOp, Result, Value};
 use crate::lexer::{lex, Token, TokenKind};
@@ -56,6 +56,9 @@ impl Parser {
         }
         if self.match_keyword("INSERT") {
             return self.parse_insert();
+        }
+        if self.match_keyword("UPDATE") {
+            return self.parse_update();
         }
         if self.match_keyword("SELECT") {
             return self.parse_select_after_keyword();
@@ -124,6 +127,28 @@ impl Parser {
         }
         self.expect_symbol(TokenKind::RightParen)?;
         Ok(Statement::Insert(InsertStatement { table_name, values }))
+    }
+
+    fn parse_update(&mut self) -> Result<Statement> {
+        let table_name = self.expect_identifier()?;
+        self.expect_keyword("SET")?;
+        let column_name = self.expect_identifier()?;
+        self.expect_symbol(TokenKind::Equals)?;
+        let value = self.expect_literal()?;
+        if self.match_symbol(TokenKind::Comma) {
+            return Err(Error::Parse("UPDATE supports only one SET assignment".into()));
+        }
+        let filter = if self.match_keyword("WHERE") {
+            Some(self.parse_filter()?)
+        } else {
+            None
+        };
+        Ok(Statement::Update(UpdateStatement {
+            table_name,
+            column_name,
+            value,
+            filter,
+        }))
     }
 
     fn parse_select_after_keyword(&mut self) -> Result<Statement> {

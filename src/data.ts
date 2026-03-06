@@ -48,7 +48,7 @@ export const insights: InsightCard[] = [
     title: "Planner Confidence",
     value: "High",
     tone: "good",
-    detail: "Equality and range predicates line up with the seeded demo indexes."
+    detail: "Equality, range, and update predicates line up with the seeded demo indexes."
   },
   {
     title: "Storage Style",
@@ -124,6 +124,30 @@ export const sampleResults: Record<string, QueryResult> = {
     rawPlan: "{ kind: IndexRangeScan, description: mock index range scan on users.id }",
     filterLabel: "id >= 2",
     limit: 2,
+    usedIndexName: "idx_users_id"
+  },
+  update: {
+    label: "users",
+    status: "ok",
+    strategy: "Mock update via index idx_users_id",
+    latencyMs: 4.9,
+    rowsRead: 1,
+    rowsReturned: 0,
+    columns: [],
+    rows: [],
+    notes: [
+      "Browser fallback is active.",
+      "Desktop mode will show the real update plan and mutation message from the Rust engine."
+    ],
+    source: "mock",
+    planKind: "IndexLookup",
+    message: "1 row(s) updated",
+    astKind: "Update",
+    statementCount: 1,
+    rawAst: "{ kind: Update, table_name: users, column_name: tier, value: pro }",
+    rawPlan: "{ kind: IndexLookup, description: mock update via index idx_users_id }",
+    filterLabel: "id = 1",
+    limit: null,
     usedIndexName: "idx_users_id"
   },
   orders: {

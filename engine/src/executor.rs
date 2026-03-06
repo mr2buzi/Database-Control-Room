@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use crate::ast::{
     CreateIndexStatement, CreateTableStatement, DeleteStatement, InsertStatement, Projection,
-    SelectStatement, Statement,
+    SelectStatement, Statement, UpdateStatement,
 };
 use crate::catalog::{Catalog, IndexMeta, TableMeta};
 use crate::common::{escape_json, ColumnType, Error, FilterOp, Result, Value};
@@ -226,6 +226,9 @@ impl Database {
             Statement::Select(select) => {
                 self.execute_select(statement.clone(), select.clone(), plan)
             }
+            Statement::Update(update) => {
+                self.execute_update_mutation(statement.clone(), update.clone(), plan)
+            }
             Statement::CreateTable(create) => {
                 self.run_mutation(statement.clone(), plan, |database| database.create_table(create))
             }
@@ -242,6 +245,49 @@ impl Database {
             }
         }?;
         Ok(envelope)
+    }
+
+    fn execute_update_mutation(
+        &mut self,
+        ast: Statement,
+        update: UpdateStatement,
+        plan: Plan,
+    ) -> Result<ExecutionEnvelope> {
+        let started = Instant::now();
+        let savepoint = self.pager.savepoint();
+        let catalog_snapshot = self.catalog.clone();
+        let message = self.update(&update);
+        match message {
+            Ok(message) => {
+                if !self.in_transaction {
+                    if let Err(error) = self.pager.commit() {
+                        let _ = self.pager.rollback();
+                        self.catalog = catalog_snapshot;
+                        let _ = self.reload_catalog();
+                        return Err(error);
+                    }
+                    self.reload_catalog()?;
+                }
+                Ok(ExecutionEnvelope {
+                    ast,
+                    plan,
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    stats: QueryStats {
+                        latency_ms: started.elapsed().as_secs_f64() * 1000.0,
+                        rows_read: 0,
+                        rows_returned: 0,
+                        used_index: false,
+                    },
+                    message: Some(message),
+                })
+            }
+            Err(error) => {
+                self.pager.restore_savepoint(savepoint);
+                self.catalog = catalog_snapshot;
+                Err(error)
+            }
+        }
     }
 
     fn simple_response(&self, ast: Statement, plan: Plan, message: &str) -> ExecutionEnvelope {
@@ -447,26 +493,8 @@ impl Database {
             .table(&delete.table_name)
             .ok_or_else(|| Error::Catalog(format!("table {} not found", delete.table_name)))?
             .clone();
-        let candidate_row_ids = if let Some(filter) = &delete.filter {
-            if let Some(index_meta) = self.catalog.index_for_column(table.id, &filter.column) {
-                if index_meta.key_type == filter.value.value_type() {
-                    match filter.op {
-                        FilterOp::Eq => {
-                            search_index(&mut self.pager, index_meta.root_page_id, &filter.value)?
-                                .row_ids
-                        }
-                        _ => search_index_range(&mut self.pager, index_meta.root_page_id, filter)?
-                            .row_ids,
-                    }
-                } else {
-                    collect_scan_row_ids(&mut self.pager, &table, delete.filter.as_ref())?
-                }
-            } else {
-                collect_scan_row_ids(&mut self.pager, &table, delete.filter.as_ref())?
-            }
-        } else {
-            collect_scan_row_ids(&mut self.pager, &table, None)?
-        };
+        let candidate_row_ids =
+            self.collect_candidate_row_ids(&table, delete.filter.as_ref())?;
 
         let mut deleted = 0usize;
         for row_id in candidate_row_ids {
@@ -486,6 +514,58 @@ impl Database {
         self.rebuild_indexes_for_table(table.id)?;
         self.persist_catalog()?;
         Ok(format!("{deleted} row(s) deleted"))
+    }
+
+    fn update(&mut self, update: &UpdateStatement) -> Result<String> {
+        let table = self
+            .catalog
+            .table(&update.table_name)
+            .ok_or_else(|| Error::Catalog(format!("table {} not found", update.table_name)))?
+            .clone();
+        let target_index = column_index(&table, &update.column_name)?;
+        let target_column = &table.columns[target_index];
+        if update.value.value_type() != target_column.column_type {
+            return Err(Error::Storage(format!(
+                "type mismatch for column {}",
+                update.column_name
+            )));
+        }
+
+        let candidate_row_ids = self.collect_candidate_row_ids(&table, update.filter.as_ref())?;
+        let mut replacements = Vec::new();
+
+        for row_id in candidate_row_ids {
+            if let Some(row) = fetch_row(&mut self.pager, &table, row_id)? {
+                if update
+                    .filter
+                    .as_ref()
+                    .map(|filter| value_matches_filter(&row.values, &table, filter))
+                    .transpose()?
+                    .unwrap_or(true)
+                {
+                    let mut updated_values = row.values.clone();
+                    updated_values[target_index] = update.value.clone();
+                    replacements.push((row.row_id, updated_values));
+                }
+            }
+        }
+
+        let mut updated = 0usize;
+        for (row_id, values) in replacements {
+            {
+                let table_meta = self
+                    .catalog
+                    .table_mut(&update.table_name)
+                    .ok_or_else(|| Error::Catalog(format!("table {} not found", update.table_name)))?;
+                insert_row(&mut self.pager, table_meta, &values)?;
+            }
+            mark_deleted(&mut self.pager, row_id)?;
+            updated += 1;
+        }
+
+        self.rebuild_indexes_for_table(table.id)?;
+        self.persist_catalog()?;
+        Ok(format!("{updated} row(s) updated"))
     }
 
     fn create_index(&mut self, create_index: &CreateIndexStatement) -> Result<String> {
@@ -557,6 +637,30 @@ impl Database {
     fn reload_catalog(&mut self) -> Result<()> {
         self.catalog = Catalog::deserialize(&self.pager.read_catalog()?)?;
         Ok(())
+    }
+
+    fn collect_candidate_row_ids(
+        &mut self,
+        table: &TableMeta,
+        filter: Option<&crate::common::Filter>,
+    ) -> Result<Vec<crate::common::RowId>> {
+        if let Some(filter) = filter {
+            if let Some(index_meta) = self.catalog.index_for_column(table.id, &filter.column) {
+                if index_meta.key_type == filter.value.value_type() {
+                    return match filter.op {
+                        FilterOp::Eq => Ok(
+                            search_index(&mut self.pager, index_meta.root_page_id, &filter.value)?
+                                .row_ids,
+                        ),
+                        _ => Ok(
+                            search_index_range(&mut self.pager, index_meta.root_page_id, filter)?
+                                .row_ids,
+                        ),
+                    };
+                }
+            }
+        }
+        collect_scan_row_ids(&mut self.pager, table, filter)
     }
 }
 
@@ -791,6 +895,17 @@ fn statement_to_json(statement: &Statement) -> String {
                 .map(Value::to_json)
                 .collect::<Vec<_>>()
                 .join(",")
+        ),
+        Statement::Update(update) => format!(
+            "{{\"kind\":\"Update\",\"table_name\":\"{}\",\"column_name\":\"{}\",\"value\":{},\"filter\":{}}}",
+            escape_json(&update.table_name),
+            escape_json(&update.column_name),
+            update.value.to_json(),
+            update
+                .filter
+                .as_ref()
+                .map(filter_to_json)
+                .unwrap_or_else(|| "null".into())
         ),
         Statement::Select(select) => select_to_json("Select", select),
         Statement::Delete(delete) => format!(

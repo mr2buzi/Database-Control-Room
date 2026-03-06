@@ -61,6 +61,9 @@ const runMockQuery = (
   if (normalized.includes("from orders")) {
     result = sampleResults.orders;
     summary = "Browser fallback on orders";
+  } else if (normalized.startsWith("update")) {
+    result = sampleResults.update;
+    summary = "Browser fallback update";
   } else if (normalized.includes("from audit_log")) {
     result = sampleResults.scan;
     summary = "Browser fallback scan";

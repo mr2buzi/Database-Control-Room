@@ -26,6 +26,20 @@ WHERE id >= 2
 LIMIT 2;`
   },
   {
+    label: "Single update",
+    description: "Indexed single-row update on users.id",
+    query: `UPDATE users
+SET tier = 'pro'
+WHERE id = 1;`
+  },
+  {
+    label: "Range update",
+    description: "Range-filter update on users.id",
+    query: `UPDATE users
+SET tier = 'pro'
+WHERE id >= 2;`
+  },
+  {
     label: "Order activity",
     description: "Operational lookup on orders.user_id",
     query: `SELECT id, user_id, amount_cents, status
@@ -53,11 +67,12 @@ LIMIT 1;`
     label: "Txn demo",
     description: "Run a multi-statement transaction",
     query: `BEGIN;
-INSERT INTO users VALUES (5, 'Rina', 'pro');
+UPDATE users SET tier = 'pro' WHERE id >= 2;
 ROLLBACK;
 SELECT id, name, tier
 FROM users
-WHERE id = 5;`
+WHERE id >= 2
+LIMIT 2;`
   }
 ];
 

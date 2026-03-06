@@ -6,6 +6,7 @@ use crate::common::{ColumnDef, Filter, Value};
 pub enum Statement {
     CreateTable(CreateTableStatement),
     Insert(InsertStatement),
+    Update(UpdateStatement),
     Select(SelectStatement),
     Delete(DeleteStatement),
     CreateIndex(CreateIndexStatement),
@@ -26,6 +27,14 @@ pub struct CreateTableStatement {
 pub struct InsertStatement {
     pub table_name: String,
     pub values: Vec<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateStatement {
+    pub table_name: String,
+    pub column_name: String,
+    pub value: Value,
+    pub filter: Option<Filter>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +87,21 @@ impl Display for Statement {
                 writeln!(f, "  values:")?;
                 for value in &statement.values {
                     writeln!(f, "    - {}", value.display_value())?;
+                }
+                Ok(())
+            }
+            Self::Update(statement) => {
+                writeln!(f, "Update")?;
+                writeln!(f, "  table: {}", statement.table_name)?;
+                writeln!(f, "  set: {} = {}", statement.column_name, statement.value.display_value())?;
+                if let Some(filter) = &statement.filter {
+                    writeln!(
+                        f,
+                        "  filter: {} {} {}",
+                        filter.column,
+                        filter.op.symbol(),
+                        filter.value.display_value()
+                    )?;
                 }
                 Ok(())
             }

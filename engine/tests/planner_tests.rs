@@ -95,3 +95,66 @@ fn planner_falls_back_to_scan_for_unindexed_range() {
     assert!(select.contains("\"kind\":\"SeqScan\""));
     assert!(select.contains("\"used_index\":false"));
 }
+
+#[test]
+fn update_uses_index_lookup_for_indexed_equality() {
+    let test_db = TestDb::new("planner-update-eq");
+    let mut db = open_db(&test_db.path);
+    exec(
+        &mut db,
+        "CREATE TABLE users (id INT, name TEXT, tier TEXT);",
+        OutputFormat::Table,
+    );
+    exec(
+        &mut db,
+        "INSERT INTO users VALUES (1, 'Ana', 'free');",
+        OutputFormat::Table,
+    );
+    exec(
+        &mut db,
+        "CREATE INDEX idx_users_id ON users(id);",
+        OutputFormat::Table,
+    );
+
+    let update = exec(
+        &mut db,
+        "UPDATE users SET tier = 'pro' WHERE id = 1;",
+        OutputFormat::Json,
+    );
+    assert!(update.contains("\"kind\":\"IndexLookup\""));
+    assert!(update.contains("\"used_index\":\"idx_users_id\""));
+}
+
+#[test]
+fn update_uses_index_range_scan_for_indexed_inequality() {
+    let test_db = TestDb::new("planner-update-range");
+    let mut db = open_db(&test_db.path);
+    exec(
+        &mut db,
+        "CREATE TABLE users (id INT, name TEXT, tier TEXT);",
+        OutputFormat::Table,
+    );
+    exec(
+        &mut db,
+        "INSERT INTO users VALUES (1, 'Ana', 'free');",
+        OutputFormat::Table,
+    );
+    exec(
+        &mut db,
+        "INSERT INTO users VALUES (2, 'Jay', 'free');",
+        OutputFormat::Table,
+    );
+    exec(
+        &mut db,
+        "CREATE INDEX idx_users_id ON users(id);",
+        OutputFormat::Table,
+    );
+
+    let update = exec(
+        &mut db,
+        "UPDATE users SET tier = 'pro' WHERE id >= 1;",
+        OutputFormat::Json,
+    );
+    assert!(update.contains("\"kind\":\"IndexRangeScan\""));
+    assert!(update.contains("\"used_index\":\"idx_users_id\""));
+}

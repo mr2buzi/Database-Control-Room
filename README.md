@@ -6,6 +6,13 @@ SlateDB is a single-process relational database prototype written in Rust, paire
 
 ## Release Notes
 
+### v1.3.0
+
+- added single-column `UPDATE table SET col = literal [WHERE ...]`
+- reused indexed equality/range planning for update candidate selection
+- added internal pager savepoints so failed updates do not leave partial dirty state
+- updated the workbench with update presets and trace coverage
+
 ### v1.2.0
 
 - added single-bound range predicates: `>`, `>=`, `<`, `<=`
@@ -22,6 +29,7 @@ Engine:
 - catalog metadata for tables and indexes
 - one-column B+ tree indexes
 - equality and range-filter query planner
+- single-column `UPDATE` with table-level index rebuilds
 - transactional execution with `BEGIN`, `COMMIT`, `ROLLBACK`
 - physical WAL crash recovery
 
@@ -73,6 +81,7 @@ Supported statements:
 
 - `CREATE TABLE`
 - `INSERT`
+- `UPDATE`
 - `SELECT`
 - `DELETE`
 - `CREATE INDEX`
@@ -159,6 +168,7 @@ The frontend therefore reflects real engine behavior rather than simulated plann
 CREATE TABLE users (id INT, name TEXT, tier TEXT);
 INSERT INTO users VALUES (1, 'Ana', 'free');
 INSERT INTO users VALUES (2, 'Jay', 'pro');
+UPDATE users SET tier = 'pro' WHERE id = 2;
 SELECT id, name, tier FROM users WHERE id = 2 LIMIT 1;
 SELECT id, name, tier FROM users WHERE id >= 2 LIMIT 2;
 CREATE INDEX idx_users_id ON users(id);
@@ -176,7 +186,6 @@ These limits are intentional:
 - `LIMIT` on `SELECT`
 - one table per query
 - no joins
-- no `UPDATE`
 - single-process only
 
 ## How To Run
@@ -257,19 +266,31 @@ LIMIT 2;
 ```
 
 5. Show the AST and planner payload, then contrast it with a sequential scan query on a non-indexed predicate
-6. Run a transaction demo:
+6. Run an update demo:
 
 ```sql
-BEGIN;
-INSERT INTO users VALUES (5, 'Rina', 'pro');
-ROLLBACK;
+UPDATE users
+SET tier = 'pro'
+WHERE id = 1;
 SELECT id, name, tier
 FROM users
-WHERE id = 5
+WHERE id = 1
 LIMIT 1;
 ```
 
-7. Walk through how the WAL and rollback model support that behavior
+7. Run a transaction demo:
+
+```sql
+BEGIN;
+UPDATE users SET tier = 'pro' WHERE id >= 2;
+ROLLBACK;
+SELECT id, name, tier
+FROM users
+WHERE id >= 2
+LIMIT 2;
+```
+
+8. Walk through how the WAL, savepoint, and rollback model support that behavior
 
 ## Testing
 
@@ -294,11 +315,11 @@ cargo test
 
 ## What To Improve Next
 
-The next feature to add would be `UPDATE`, which would make row mutation and index maintenance a more complete part of the engine story.
+The next feature to add would be `ORDER BY`, which would make result shaping and planner demos more realistic.
 
 Other useful next steps:
 
-- `UPDATE`
+- `ORDER BY`
 - richer schema introspection in the UI
 - better benchmark output
 - compaction / vacuum

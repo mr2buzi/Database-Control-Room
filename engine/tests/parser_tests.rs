@@ -53,6 +53,32 @@ fn parses_multiple_statements() {
 }
 
 #[test]
+fn parses_update_with_filter() {
+    let statement = parse_statement("UPDATE users SET tier = 'pro' WHERE id >= 2;").unwrap();
+    match statement {
+        Statement::Update(update) => {
+            assert_eq!(update.table_name, "users");
+            assert_eq!(update.column_name, "tier");
+            assert_eq!(update.filter.unwrap().op.symbol(), ">=");
+        }
+        _ => panic!("expected update"),
+    }
+}
+
+#[test]
+fn parses_update_without_where() {
+    let statement = parse_statement("UPDATE users SET tier = 'pro';").unwrap();
+    match statement {
+        Statement::Update(update) => {
+            assert_eq!(update.table_name, "users");
+            assert_eq!(update.column_name, "tier");
+            assert!(update.filter.is_none());
+        }
+        _ => panic!("expected update"),
+    }
+}
+
+#[test]
 fn parses_meta_command() {
     let statement = parse_statement(".exit").unwrap();
     assert!(matches!(statement, Statement::MetaCommand(_)));
@@ -68,4 +94,17 @@ fn rejects_invalid_sql() {
 fn rejects_multi_predicate_where_clause() {
     let error = parse_statement("SELECT * FROM users WHERE id >= 2 AND id <= 4;").unwrap_err();
     assert!(error.to_string().contains("unexpected tokens after statement"));
+}
+
+#[test]
+fn rejects_multi_assignment_update() {
+    let error = parse_statement("UPDATE users SET tier = 'pro', name = 'Ana';").unwrap_err();
+    assert!(error.to_string().contains("one SET assignment"));
+}
+
+#[test]
+fn rejects_expression_update_value() {
+    let error = parse_statement("UPDATE users SET id = id + 1;").unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("expected literal") || message.contains("unexpected character"));
 }

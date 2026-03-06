@@ -168,6 +168,8 @@ fn is_keyword(keyword: &str) -> bool {
         "CREATE"
             | "TABLE"
             | "INSERT"
+            | "UPDATE"
+            | "SET"
             | "INTO"
             | "VALUES"
             | "SELECT"

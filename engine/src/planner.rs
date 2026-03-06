@@ -1,4 +1,4 @@
-use crate::ast::{DeleteStatement, Projection, SelectStatement, Statement};
+use crate::ast::{DeleteStatement, Projection, SelectStatement, Statement, UpdateStatement};
 use crate::catalog::Catalog;
 use crate::common::{escape_json, Error, Filter, FilterOp, Result};
 
@@ -86,6 +86,7 @@ pub fn build_plan(statement: &Statement, catalog: &Catalog) -> Result<Plan> {
     match statement {
         Statement::Select(select) => build_select_plan(select, catalog),
         Statement::Delete(delete) => build_delete_plan(delete, catalog),
+        Statement::Update(update) => build_update_plan(update, catalog),
         Statement::Explain(select) => {
             let mut plan = build_select_plan(select, catalog)?;
             plan.kind = PlanKind::Explain;
@@ -120,6 +121,42 @@ pub fn build_plan(statement: &Statement, catalog: &Catalog) -> Result<Plan> {
             description: "meta command".into(),
         }),
     }
+}
+
+fn build_update_plan(statement: &UpdateStatement, catalog: &Catalog) -> Result<Plan> {
+    let table = catalog
+        .table(&statement.table_name)
+        .ok_or_else(|| Error::Catalog(format!("table {} not found", statement.table_name)))?;
+    let used_index = statement.filter.as_ref().and_then(|filter| {
+        catalog
+            .index_for_column(table.id, &filter.column)
+            .filter(|index| index.key_type == filter.value.value_type())
+            .map(|index| index.name.clone())
+    });
+    let (kind, description) = if let Some(index_name) = &used_index {
+        match statement.filter.as_ref().map(|filter| filter.op) {
+            Some(FilterOp::Eq) => (
+                PlanKind::IndexLookup,
+                format!("update via index {index_name}"),
+            ),
+            Some(_) => (
+                PlanKind::IndexRangeScan,
+                format!("update via index range scan {index_name}"),
+            ),
+            None => (PlanKind::SeqScan, "update via sequential scan".into()),
+        }
+    } else {
+        (PlanKind::SeqScan, "update via sequential scan".into())
+    };
+    Ok(Plan {
+        kind,
+        table: Some(statement.table_name.clone()),
+        projection: vec![statement.column_name.clone()],
+        filter: statement.filter.clone(),
+        limit: None,
+        used_index,
+        description,
+    })
 }
 
 fn build_select_plan(statement: &SelectStatement, catalog: &Catalog) -> Result<Plan> {
