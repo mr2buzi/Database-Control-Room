@@ -4,6 +4,15 @@ Rust storage engine + desktop database workbench.
 
 SlateDB is a single-process relational database prototype written in Rust, paired with an Electron + React workbench for inspecting query plans, execution stats, schema state, and result rows from the real engine.
 
+## Release Notes
+
+### v1.2.0
+
+- added single-bound range predicates: `>`, `>=`, `<`, `<=`
+- added `IndexRangeScan` planning and ordered B+ tree leaf traversal
+- updated the workbench to surface range-scan presets and plan traces
+- expanded engine tests for range parsing, planning, bounds, ordering, and `LIMIT`
+
 ## What It Includes
 
 Engine:
@@ -233,11 +242,11 @@ Recommended interview demo flow:
 ```sql
 SELECT id, name, tier
 FROM users
-WHERE id = 2
-LIMIT 1;
+WHERE id >= 2
+LIMIT 2;
 ```
 
-3. Show the planner and output panels, then point out indexed lookup
+3. Show the planner and output panels, then point out ordered index range traversal
 4. Run:
 
 ```sql
@@ -247,7 +256,7 @@ WHERE id >= 2
 LIMIT 2;
 ```
 
-5. Show the AST and planner payload
+5. Show the AST and planner payload, then contrast it with a sequential scan query on a non-indexed predicate
 6. Run a transaction demo:
 
 ```sql
