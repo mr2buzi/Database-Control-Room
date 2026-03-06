@@ -10,6 +10,10 @@ pub enum TokenKind {
     LeftParen,
     RightParen,
     Equals,
+    GreaterThan,
+    GreaterThanOrEqual,
+    LessThan,
+    LessThanOrEqual,
     Semicolon,
     Star,
 }
@@ -55,6 +59,32 @@ pub fn lex(input: &str) -> Result<Vec<Token>> {
                     kind: TokenKind::Equals,
                 });
                 index += 1;
+            }
+            '>' => {
+                if matches!(characters.get(index + 1), Some('=')) {
+                    tokens.push(Token {
+                        kind: TokenKind::GreaterThanOrEqual,
+                    });
+                    index += 2;
+                } else {
+                    tokens.push(Token {
+                        kind: TokenKind::GreaterThan,
+                    });
+                    index += 1;
+                }
+            }
+            '<' => {
+                if matches!(characters.get(index + 1), Some('=')) {
+                    tokens.push(Token {
+                        kind: TokenKind::LessThanOrEqual,
+                    });
+                    index += 2;
+                } else {
+                    tokens.push(Token {
+                        kind: TokenKind::LessThan,
+                    });
+                    index += 1;
+                }
             }
             ';' => {
                 tokens.push(Token {

@@ -1,11 +1,12 @@
 use crate::ast::{DeleteStatement, Projection, SelectStatement, Statement};
 use crate::catalog::Catalog;
-use crate::common::{escape_json, Error, Filter, Result};
+use crate::common::{escape_json, Error, Filter, FilterOp, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlanKind {
     SeqScan,
     IndexLookup,
+    IndexRangeScan,
     Explain,
     Mutation,
     Transaction,
@@ -34,8 +35,9 @@ impl Plan {
         }
         if let Some(filter) = &self.filter {
             parts.push(format!(
-                "filter={}={}",
+                "filter={}{}{}",
                 filter.column,
+                filter.op.symbol(),
                 filter.value.display_value()
             ));
         }
@@ -61,8 +63,9 @@ impl Plan {
                 .join(","),
             match &self.filter {
                 Some(filter) => format!(
-                    "{{\"column\":\"{}\",\"value\":{}}}",
+                    "{{\"column\":\"{}\",\"op\":\"{}\",\"value\":{}}}",
                     escape_json(&filter.column),
+                    filter.op.symbol(),
                     filter.value.to_json()
                 ),
                 None => "null".into(),
@@ -133,15 +136,20 @@ fn build_select_plan(statement: &SelectStatement, catalog: &Catalog) -> Result<P
             .filter(|index| index.key_type == filter.value.value_type())
             .map(|index| index.name.clone())
     });
-    let kind = if used_index.is_some() {
-        PlanKind::IndexLookup
+    let (kind, description) = if let Some(index_name) = &used_index {
+        match statement.filter.as_ref().map(|filter| filter.op) {
+            Some(FilterOp::Eq) => (
+                PlanKind::IndexLookup,
+                format!("index lookup via {index_name}"),
+            ),
+            Some(_) => (
+                PlanKind::IndexRangeScan,
+                format!("index range scan via {index_name}"),
+            ),
+            None => (PlanKind::SeqScan, "sequential heap scan".into()),
+        }
     } else {
-        PlanKind::SeqScan
-    };
-    let description = if let Some(index_name) = &used_index {
-        format!("index lookup via {index_name}")
-    } else {
-        "sequential heap scan".into()
+        (PlanKind::SeqScan, "sequential heap scan".into())
     };
     Ok(Plan {
         kind,
@@ -164,17 +172,23 @@ fn build_delete_plan(statement: &DeleteStatement, catalog: &Catalog) -> Result<P
             .filter(|index| index.key_type == filter.value.value_type())
             .map(|index| index.name.clone())
     });
-    let description = if let Some(index_name) = &used_index {
-        format!("delete via index {index_name}")
+    let (kind, description) = if let Some(index_name) = &used_index {
+        match statement.filter.as_ref().map(|filter| filter.op) {
+            Some(FilterOp::Eq) => (
+                PlanKind::IndexLookup,
+                format!("delete via index {index_name}"),
+            ),
+            Some(_) => (
+                PlanKind::IndexRangeScan,
+                format!("delete via index range scan {index_name}"),
+            ),
+            None => (PlanKind::SeqScan, "delete via sequential scan".into()),
+        }
     } else {
-        "delete via sequential scan".into()
+        (PlanKind::SeqScan, "delete via sequential scan".into())
     };
     Ok(Plan {
-        kind: if used_index.is_some() {
-            PlanKind::IndexLookup
-        } else {
-            PlanKind::SeqScan
-        },
+        kind,
         table: Some(statement.table_name.clone()),
         projection: Vec::new(),
         filter: statement.filter.clone(),

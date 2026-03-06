@@ -6,8 +6,8 @@ use crate::ast::{
     SelectStatement, Statement,
 };
 use crate::catalog::{Catalog, IndexMeta, TableMeta};
-use crate::common::{escape_json, ColumnType, Error, Result, Value};
-use crate::index::btree::{build_index_pages, search_index};
+use crate::common::{escape_json, ColumnType, Error, FilterOp, Result, Value};
+use crate::index::btree::{build_index_pages, search_index, search_index_range};
 use crate::parser::{parse_statement, parse_statements};
 use crate::planner::{build_plan, Plan};
 use crate::storage::pager::Pager;
@@ -282,10 +282,20 @@ impl Database {
         let (rows_read, rows) = if let Some(filter) = &select.filter {
             if let Some(index_meta) = self.catalog.index_for_column(table.id, &filter.column) {
                 if index_meta.key_type == filter.value.value_type() {
-                    let row_ids = search_index(&mut self.pager, index_meta.root_page_id, &filter.value)?
-                        .row_ids;
+                    let row_ids = match filter.op {
+                        FilterOp::Eq => {
+                            search_index(&mut self.pager, index_meta.root_page_id, &filter.value)?
+                                .row_ids
+                        }
+                        _ => {
+                            search_index_range(&mut self.pager, index_meta.root_page_id, filter)?
+                                .row_ids
+                        }
+                    };
                     let mut materialized = Vec::new();
+                    let mut rows_read = 0usize;
                     for row_id in &row_ids {
+                        rows_read += 1;
                         if let Some(row) = fetch_row(&mut self.pager, &table, *row_id)? {
                             if value_matches_filter(&row.values, &table, filter)? {
                                 materialized.push(project_values(&row.values, &projection_indices));
@@ -296,10 +306,7 @@ impl Database {
                         }
                     }
                     (
-                        select
-                            .limit
-                            .map(|limit| row_ids.len().min(limit))
-                            .unwrap_or(row_ids.len()),
+                        rows_read,
                         materialized,
                     )
                 } else {
@@ -443,7 +450,14 @@ impl Database {
         let candidate_row_ids = if let Some(filter) = &delete.filter {
             if let Some(index_meta) = self.catalog.index_for_column(table.id, &filter.column) {
                 if index_meta.key_type == filter.value.value_type() {
-                    search_index(&mut self.pager, index_meta.root_page_id, &filter.value)?.row_ids
+                    match filter.op {
+                        FilterOp::Eq => {
+                            search_index(&mut self.pager, index_meta.root_page_id, &filter.value)?
+                                .row_ids
+                        }
+                        _ => search_index_range(&mut self.pager, index_meta.root_page_id, filter)?
+                            .row_ids,
+                    }
                 } else {
                     collect_scan_row_ids(&mut self.pager, &table, delete.filter.as_ref())?
                 }
@@ -573,12 +587,20 @@ pub fn run_benchmark(path: &Path) -> Result<String> {
         OutputFormat::Json,
         false,
     )?;
+    let range = database.execute_statement(
+        parse_statement("SELECT * FROM bench_users WHERE id >= 420 LIMIT 5;")?,
+        OutputFormat::Json,
+        false,
+    )?;
     let index = database.execute_statement(
         parse_statement("SELECT * FROM bench_users WHERE id = 420;")?,
         OutputFormat::Json,
         false,
     )?;
-    Ok(format!("scan={}\nindex={}", scan.rendered, index.rendered))
+    Ok(format!(
+        "scan={}\nrange={}\nindex={}",
+        scan.rendered, range.rendered, index.rendered
+    ))
 }
 
 fn scan_select_rows(
@@ -639,7 +661,10 @@ fn value_matches_filter(
     filter: &crate::common::Filter,
 ) -> Result<bool> {
     let index = column_index(table, &filter.column)?;
-    Ok(values.get(index) == Some(&filter.value))
+    Ok(values
+        .get(index)
+        .map(|value| filter.op.matches(value, &filter.value))
+        .unwrap_or(false))
 }
 
 fn project_values(values: &[Value], projection_indices: &[usize]) -> Vec<Value> {
@@ -742,7 +767,7 @@ pub fn render_json_error(error: &Error) -> String {
 }
 
 fn statement_to_json(statement: &Statement) -> String {
-    match statement {
+        match statement {
         Statement::CreateTable(create) => format!(
             "{{\"kind\":\"CreateTable\",\"table_name\":\"{}\",\"columns\":[{}]}}",
             escape_json(&create.table_name),
@@ -821,8 +846,9 @@ fn select_to_json(kind: &str, select: &SelectStatement) -> String {
 
 fn filter_to_json(filter: &crate::common::Filter) -> String {
     format!(
-        "{{\"column\":\"{}\",\"value\":{}}}",
+        "{{\"column\":\"{}\",\"op\":\"{}\",\"value\":{}}}",
         escape_json(&filter.column),
+        filter.op.symbol(),
         filter.value.to_json()
     )
 }

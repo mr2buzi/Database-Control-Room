@@ -30,6 +30,20 @@ fn parses_select_with_filter() {
 }
 
 #[test]
+fn parses_select_with_range_filter() {
+    let statement = parse_statement("SELECT id FROM users WHERE id >= 2 LIMIT 2;").unwrap();
+    match statement {
+        Statement::Select(select) => {
+            let filter = select.filter.unwrap();
+            assert_eq!(filter.column, "id");
+            assert_eq!(filter.op.symbol(), ">=");
+            assert_eq!(select.limit, Some(2));
+        }
+        _ => panic!("expected select"),
+    }
+}
+
+#[test]
 fn parses_multiple_statements() {
     let statements = parse_statements("BEGIN; INSERT INTO users VALUES (1, 'Ana'); ROLLBACK;").unwrap();
     assert_eq!(statements.len(), 3);
@@ -48,4 +62,10 @@ fn parses_meta_command() {
 fn rejects_invalid_sql() {
     let error = parse_statement("SELECT FROM users;").unwrap_err();
     assert!(error.to_string().contains("expected identifier"));
+}
+
+#[test]
+fn rejects_multi_predicate_where_clause() {
+    let error = parse_statement("SELECT * FROM users WHERE id >= 2 AND id <= 4;").unwrap_err();
+    assert!(error.to_string().contains("unexpected tokens after statement"));
 }

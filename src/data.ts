@@ -48,7 +48,7 @@ export const insights: InsightCard[] = [
     title: "Planner Confidence",
     value: "High",
     tone: "good",
-    detail: "Equality predicates line up with the seeded demo indexes."
+    detail: "Equality and range predicates line up with the seeded demo indexes."
   },
   {
     title: "Storage Style",
@@ -98,6 +98,33 @@ export const sampleResults: Record<string, QueryResult> = {
     filterLabel: "id = 2",
     limit: 1,
     usedIndexName: null
+  },
+  range: {
+    label: "users",
+    status: "ok",
+    strategy: "Mock index range scan on users.id",
+    latencyMs: 4.4,
+    rowsRead: 2,
+    rowsReturned: 2,
+    columns: ["id", "name", "tier"],
+    rows: [
+      { id: 2, name: "Jay", tier: "pro" },
+      { id: 3, name: "Mia", tier: "pro" }
+    ],
+    notes: [
+      "Browser fallback is active.",
+      "Desktop mode will show the real range-scan plan from the Rust engine."
+    ],
+    source: "mock",
+    planKind: "IndexRangeScan",
+    message: "Mock response",
+    astKind: "Select",
+    statementCount: 1,
+    rawAst: "{ kind: Select, table_name: users, filter: { column: id, op: >=, value: 2 }, limit: 2 }",
+    rawPlan: "{ kind: IndexRangeScan, description: mock index range scan on users.id }",
+    filterLabel: "id >= 2",
+    limit: 2,
+    usedIndexName: "idx_users_id"
   },
   orders: {
     label: "orders",

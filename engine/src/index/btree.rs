@@ -1,4 +1,4 @@
-use crate::common::{Error, Result, RowId, Value};
+use crate::common::{Error, Filter, FilterOp, Result, RowId, Value};
 use crate::storage::page::{blank_page, PAGE_SIZE, PAGE_TYPE_INDEX_INTERNAL, PAGE_TYPE_INDEX_LEAF};
 use crate::storage::pager::Pager;
 
@@ -32,21 +32,38 @@ pub fn build_index_pages(
 }
 
 pub fn search_index(pager: &mut Pager, root_page: u32, needle: &Value) -> Result<SearchResult> {
-    let mut current_page = root_page;
-    loop {
+    let leaf_page = find_leaf_page(pager, root_page, needle)?;
+    let page = pager.get_page(leaf_page)?;
+    search_leaf(&page, needle)
+}
+
+pub fn search_index_range(
+    pager: &mut Pager,
+    root_page: u32,
+    filter: &Filter,
+) -> Result<SearchResult> {
+    let mut current_page = match filter.op {
+        FilterOp::Eq => find_leaf_page(pager, root_page, &filter.value)?,
+        FilterOp::Gt | FilterOp::Gte => find_leaf_page(pager, root_page, &filter.value)?,
+        FilterOp::Lt | FilterOp::Lte => leftmost_leaf_page(pager, root_page)?,
+    };
+    let mut row_ids = Vec::new();
+
+    while current_page != 0 {
         let page = pager.get_page(current_page)?;
-        match page[0] {
-            PAGE_TYPE_INDEX_LEAF => return search_leaf(&page, needle),
-            PAGE_TYPE_INDEX_INTERNAL => {
-                current_page = search_internal(&page, needle)?;
+        let leaf = decode_leaf(&page)?;
+        for (key, key_row_ids) in leaf.entries {
+            if should_stop_scan(&filter.op, &key, &filter.value) {
+                return Ok(SearchResult { row_ids });
             }
-            other => {
-                return Err(Error::Storage(format!(
-                    "unexpected index page type {other}"
-                )))
+            if filter.op.matches(&key, &filter.value) {
+                row_ids.extend(key_row_ids);
             }
         }
+        current_page = leaf.next_page_id;
     }
+
+    Ok(SearchResult { row_ids })
 }
 
 fn build_leaf_level(pager: &mut Pager, grouped: &[(Value, Vec<RowId>)]) -> Result<Vec<ChildPointer>> {
@@ -157,20 +174,7 @@ fn encode_internal_page(children: &[ChildPointer]) -> Result<Vec<u8>> {
 }
 
 fn search_leaf(page: &[u8], needle: &Value) -> Result<SearchResult> {
-    let entry_count = u16::from_le_bytes(page[5..7].try_into().unwrap()) as usize;
-    let mut offset = 7usize;
-    for _ in 0..entry_count {
-        let (key, consumed) = decode_key(&page[offset..])?;
-        offset += consumed;
-        let row_count = u16::from_le_bytes(page[offset..offset + 2].try_into().unwrap()) as usize;
-        offset += 2;
-        let mut row_ids = Vec::with_capacity(row_count);
-        for _ in 0..row_count {
-            let page_id = u32::from_le_bytes(page[offset..offset + 4].try_into().unwrap());
-            let slot_id = u16::from_le_bytes(page[offset + 4..offset + 6].try_into().unwrap());
-            offset += 6;
-            row_ids.push(RowId { page_id, slot_id });
-        }
+    for (key, row_ids) in decode_leaf(page)?.entries {
         if &key == needle {
             return Ok(SearchResult { row_ids });
         }
@@ -193,6 +197,92 @@ fn search_internal(page: &[u8], needle: &Value) -> Result<u32> {
         }
     }
     fallback.ok_or_else(|| Error::Storage("empty internal index page".into()))
+}
+
+fn find_leaf_page(pager: &mut Pager, root_page: u32, needle: &Value) -> Result<u32> {
+    let mut current_page = root_page;
+    loop {
+        let page = pager.get_page(current_page)?;
+        match page[0] {
+            PAGE_TYPE_INDEX_LEAF => return Ok(current_page),
+            PAGE_TYPE_INDEX_INTERNAL => {
+                current_page = search_internal(&page, needle)?;
+            }
+            other => {
+                return Err(Error::Storage(format!(
+                    "unexpected index page type {other}"
+                )))
+            }
+        }
+    }
+}
+
+fn leftmost_leaf_page(pager: &mut Pager, root_page: u32) -> Result<u32> {
+    let mut current_page = root_page;
+    loop {
+        let page = pager.get_page(current_page)?;
+        match page[0] {
+            PAGE_TYPE_INDEX_LEAF => return Ok(current_page),
+            PAGE_TYPE_INDEX_INTERNAL => {
+                current_page = first_child_page(&page)?;
+            }
+            other => {
+                return Err(Error::Storage(format!(
+                    "unexpected index page type {other}"
+                )))
+            }
+        }
+    }
+}
+
+fn first_child_page(page: &[u8]) -> Result<u32> {
+    let entry_count = u16::from_le_bytes(page[1..3].try_into().unwrap()) as usize;
+    if entry_count == 0 {
+        return Err(Error::Storage("empty internal index page".into()));
+    }
+    let (_, consumed) = decode_key(&page[3..])?;
+    let offset = 3 + consumed;
+    Ok(u32::from_le_bytes(page[offset..offset + 4].try_into().unwrap()))
+}
+
+fn should_stop_scan(op: &FilterOp, key: &Value, bound: &Value) -> bool {
+    match op {
+        FilterOp::Eq => key > bound,
+        FilterOp::Gt | FilterOp::Gte => false,
+        FilterOp::Lt => key >= bound,
+        FilterOp::Lte => key > bound,
+    }
+}
+
+#[derive(Debug, Clone)]
+struct LeafPage {
+    next_page_id: u32,
+    entries: Vec<(Value, Vec<RowId>)>,
+}
+
+fn decode_leaf(page: &[u8]) -> Result<LeafPage> {
+    let entry_count = u16::from_le_bytes(page[5..7].try_into().unwrap()) as usize;
+    let next_page_id = u32::from_le_bytes(page[1..5].try_into().unwrap());
+    let mut offset = 7usize;
+    let mut entries = Vec::with_capacity(entry_count);
+    for _ in 0..entry_count {
+        let (key, consumed) = decode_key(&page[offset..])?;
+        offset += consumed;
+        let row_count = u16::from_le_bytes(page[offset..offset + 2].try_into().unwrap()) as usize;
+        offset += 2;
+        let mut row_ids = Vec::with_capacity(row_count);
+        for _ in 0..row_count {
+            let page_id = u32::from_le_bytes(page[offset..offset + 4].try_into().unwrap());
+            let slot_id = u16::from_le_bytes(page[offset + 4..offset + 6].try_into().unwrap());
+            offset += 6;
+            row_ids.push(RowId { page_id, slot_id });
+        }
+        entries.push((key, row_ids));
+    }
+    Ok(LeafPage {
+        next_page_id,
+        entries,
+    })
 }
 
 fn encode_key_into(buffer: &mut [u8], key: &Value) -> Result<usize> {

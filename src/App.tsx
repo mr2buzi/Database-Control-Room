@@ -10,6 +10,22 @@ const presets = [
     query: defaultQuery
   },
   {
+    label: "Range scan",
+    description: "Indexed range scan on users.id",
+    query: `SELECT id, name, tier
+FROM users
+WHERE id >= 2
+LIMIT 2;`
+  },
+  {
+    label: "Range explain",
+    description: "Inspect the planner's range-scan path",
+    query: `EXPLAIN SELECT id, name, tier
+FROM users
+WHERE id >= 2
+LIMIT 2;`
+  },
+  {
     label: "Order activity",
     description: "Operational lookup on orders.user_id",
     query: `SELECT id, user_id, amount_cents, status
@@ -19,10 +35,10 @@ LIMIT 2;`
   },
   {
     label: "Audit scan",
-    description: "Equality filter over audit_log.action",
+    description: "Sequential scan fallback over audit_log.entity",
     query: `SELECT id, entity, action, created_at
 FROM audit_log
-WHERE action = 'delete'
+WHERE entity >= 'order'
 LIMIT 2;`
   },
   {
@@ -49,6 +65,22 @@ const metricToneClass = {
   good: "tone-good",
   neutral: "tone-neutral",
   warn: "tone-warn"
+};
+
+const planStageLabel = (planKind: string, status: QueryResult["status"]) => {
+  if (planKind === "IndexLookup") {
+    return "Point lookup";
+  }
+  if (planKind === "IndexRangeScan") {
+    return "Range scan";
+  }
+  if (planKind === "SeqScan") {
+    return status === "warning" ? "Scan-heavy path" : "Sequential scan";
+  }
+  if (planKind === "Explain") {
+    return "Explain path";
+  }
+  return "Planner aligned";
 };
 
 export function App() {
@@ -312,7 +344,7 @@ export function App() {
                 </div>
                 <div>
                   <span>Plan</span>
-                  <strong>{result.status === "warning" ? "Scan-heavy path" : "Planner aligned"}</strong>
+                  <strong>{planStageLabel(result.planKind, result.status)}</strong>
                 </div>
                 <div>
                   <span>Execute</span>

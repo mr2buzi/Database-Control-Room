@@ -12,7 +12,7 @@ Engine:
 - page-based heap storage
 - catalog metadata for tables and indexes
 - one-column B+ tree indexes
-- equality-filter query planner
+- equality and range-filter query planner
 - transactional execution with `BEGIN`, `COMMIT`, `ROLLBACK`
 - physical WAL crash recovery
 
@@ -95,19 +95,19 @@ Value support in v1:
 
 ### Indexing
 
-SlateDB implements one-column B+ tree indexes for equality lookup.
+SlateDB implements one-column B+ tree indexes for point lookups and range scans.
 
 Current scope:
 
 - `INT` and `TEXT` keys
-- equality lookups
+- equality and single-bound range predicates
 - leaf pages map key -> one or more `RowId`s
 
 ### Planner
 
 The planner is intentionally simple:
 
-- if the query has an equality predicate on an indexed column with a matching type, use the index
+- if the query has an equality or single-bound range predicate on an indexed column with a matching type, use the index
 - otherwise fall back to a sequential heap scan
 
 This keeps `EXPLAIN` meaningful and makes the scan-vs-index tradeoff easy to demonstrate.
@@ -151,6 +151,7 @@ CREATE TABLE users (id INT, name TEXT, tier TEXT);
 INSERT INTO users VALUES (1, 'Ana', 'free');
 INSERT INTO users VALUES (2, 'Jay', 'pro');
 SELECT id, name, tier FROM users WHERE id = 2 LIMIT 1;
+SELECT id, name, tier FROM users WHERE id >= 2 LIMIT 2;
 CREATE INDEX idx_users_id ON users(id);
 EXPLAIN SELECT id, name, tier FROM users WHERE id = 2 LIMIT 1;
 BEGIN; INSERT INTO users VALUES (3, 'Mia', 'pro'); ROLLBACK;
@@ -162,7 +163,7 @@ These limits are intentional:
 
 - `INT` and `TEXT` only
 - no `NULL`
-- equality predicates only
+- single-column equality and single-bound range predicates only
 - `LIMIT` on `SELECT`
 - one table per query
 - no joins
@@ -242,8 +243,8 @@ LIMIT 1;
 ```sql
 EXPLAIN SELECT id, name, tier
 FROM users
-WHERE id = 2
-LIMIT 1;
+WHERE id >= 2
+LIMIT 2;
 ```
 
 5. Show the AST and planner payload
@@ -284,7 +285,7 @@ cargo test
 
 ## What To Improve Next
 
-The next feature to add would be range scans over the B+ tree so the indexing model becomes more realistic beyond equality lookup.
+The next feature to add would be `UPDATE`, which would make row mutation and index maintenance a more complete part of the engine story.
 
 Other useful next steps:
 

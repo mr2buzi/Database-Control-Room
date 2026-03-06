@@ -106,6 +106,40 @@ impl Value {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterOp {
+    Eq,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+}
+
+impl FilterOp {
+    pub fn symbol(self) -> &'static str {
+        match self {
+            Self::Eq => "=",
+            Self::Gt => ">",
+            Self::Gte => ">=",
+            Self::Lt => "<",
+            Self::Lte => "<=",
+        }
+    }
+
+    pub fn matches(self, left: &Value, right: &Value) -> bool {
+        if left.value_type() != right.value_type() {
+            return false;
+        }
+        match self {
+            Self::Eq => left == right,
+            Self::Gt => left > right,
+            Self::Gte => left >= right,
+            Self::Lt => left < right,
+            Self::Lte => left <= right,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RowId {
     pub page_id: u32,
@@ -115,6 +149,7 @@ pub struct RowId {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Filter {
     pub column: String,
+    pub op: FilterOp,
     pub value: Value,
 }
 

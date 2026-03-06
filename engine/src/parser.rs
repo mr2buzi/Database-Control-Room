@@ -2,7 +2,7 @@ use crate::ast::{
     CreateIndexStatement, CreateTableStatement, DeleteStatement, InsertStatement, MetaCommand,
     Projection, SelectStatement, Statement,
 };
-use crate::common::{ColumnDef, ColumnType, Error, Filter, Result, Value};
+use crate::common::{ColumnDef, ColumnType, Error, Filter, FilterOp, Result, Value};
 use crate::lexer::{lex, Token, TokenKind};
 
 pub fn parse_statement(input: &str) -> Result<Statement> {
@@ -187,9 +187,30 @@ impl Parser {
 
     fn parse_filter(&mut self) -> Result<Filter> {
         let column = self.expect_identifier()?;
-        self.expect_symbol(TokenKind::Equals)?;
+        let op = self.expect_filter_op()?;
         let value = self.expect_literal()?;
-        Ok(Filter { column, value })
+        Ok(Filter { column, op, value })
+    }
+
+    fn expect_filter_op(&mut self) -> Result<FilterOp> {
+        match self.advance() {
+            Some(Token {
+                kind: TokenKind::Equals,
+            }) => Ok(FilterOp::Eq),
+            Some(Token {
+                kind: TokenKind::GreaterThan,
+            }) => Ok(FilterOp::Gt),
+            Some(Token {
+                kind: TokenKind::GreaterThanOrEqual,
+            }) => Ok(FilterOp::Gte),
+            Some(Token {
+                kind: TokenKind::LessThan,
+            }) => Ok(FilterOp::Lt),
+            Some(Token {
+                kind: TokenKind::LessThanOrEqual,
+            }) => Ok(FilterOp::Lte),
+            _ => Err(Error::Parse("expected comparison operator".into())),
+        }
     }
 
     fn expect_literal(&mut self) -> Result<Value> {
@@ -287,6 +308,10 @@ fn describe_symbol(kind: &TokenKind) -> &'static str {
         TokenKind::LeftParen => "(",
         TokenKind::RightParen => ")",
         TokenKind::Equals => "=",
+        TokenKind::GreaterThan => ">",
+        TokenKind::GreaterThanOrEqual => ">=",
+        TokenKind::LessThan => "<",
+        TokenKind::LessThanOrEqual => "<=",
         TokenKind::Semicolon => ";",
         TokenKind::Star => "*",
         _ => "token",

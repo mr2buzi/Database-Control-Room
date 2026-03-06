@@ -67,6 +67,14 @@ const runMockQuery = (
   } else if (normalized.startsWith("explain")) {
     result = sampleResults.explain;
     summary = "Browser fallback explain";
+  } else if (
+    normalized.includes("where id >") ||
+    normalized.includes("where id >=") ||
+    normalized.includes("where user_id >") ||
+    normalized.includes("where user_id >=")
+  ) {
+    result = sampleResults.range;
+    summary = "Browser fallback range scan";
   } else if (normalized === defaultQuery.trim().replace(/\s+/g, " ").toLowerCase()) {
     summary = "Browser fallback default query";
   }
@@ -113,7 +121,7 @@ const transformEngineResponse = (
         : "ok";
   const astKind = String(payloadForResult.ast.kind ?? "Unknown");
   const filterLabel = payloadForResult.plan.filter
-    ? `${payloadForResult.plan.filter.column} = ${String(payloadForResult.plan.filter.value)}`
+    ? `${payloadForResult.plan.filter.column} ${payloadForResult.plan.filter.op} ${String(payloadForResult.plan.filter.value)}`
     : undefined;
 
   const result: QueryResult = {
@@ -184,6 +192,8 @@ const buildNotes = (
 
   if (payload.plan.used_index) {
     notes.push(`Index used: ${payload.plan.used_index}`);
+  } else if (payload.plan.kind === "IndexRangeScan") {
+    notes.push("Planner selected a range scan without a named index in the payload.");
   } else if (usedIndex) {
     notes.push("The engine reported indexed access.");
   } else {

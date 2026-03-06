@@ -61,6 +61,7 @@ export type BridgePlan = {
   projection: string[];
   filter: {
     column: string;
+    op: string;
     value: string | number;
   } | null;
   limit: number | null;

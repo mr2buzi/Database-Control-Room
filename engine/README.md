@@ -5,7 +5,7 @@ SlateDB is a single-process Rust database engine with:
 - A handwritten lexer and recursive-descent parser
 - Page-based on-disk storage
 - Fixed-schema heap tables
-- One-column B+ tree indexes for equality lookup
+- One-column B+ tree indexes for point lookups and range scans
 - Autocommit plus explicit `BEGIN` / `COMMIT` / `ROLLBACK`
 - Physical page-image WAL recovery
 - CLI `repl`, `exec`, and `bench` entry points
@@ -25,6 +25,7 @@ cargo run -- bench --data .\target\bench.sdb
 CREATE TABLE users (id INT, name TEXT);
 INSERT INTO users VALUES (1, 'Ana');
 SELECT * FROM users WHERE id = 1;
+SELECT * FROM users WHERE id >= 1 LIMIT 2;
 SELECT * FROM users WHERE id = 1 LIMIT 1;
 DELETE FROM users WHERE id = 1;
 CREATE INDEX idx_users_id ON users(id);
@@ -47,7 +48,7 @@ ROLLBACK;
 
 - `INT` and `TEXT` only
 - No `NULL`
-- Equality filters only
+- Single-column equality and single-bound range filters only
 - `LIMIT` on `SELECT`
 - One table per query
 - No joins, `UPDATE`, `ORDER BY`, or `GROUP BY`

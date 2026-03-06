@@ -93,8 +93,9 @@ impl Display for Statement {
                 if let Some(filter) = &statement.filter {
                     writeln!(
                         f,
-                        "  filter: {} = {}",
+                        "  filter: {} {} {}",
                         filter.column,
+                        filter.op.symbol(),
                         filter.value.display_value()
                     )?;
                 }
@@ -109,8 +110,9 @@ impl Display for Statement {
                 if let Some(filter) = &statement.filter {
                     writeln!(
                         f,
-                        "  filter: {} = {}",
+                        "  filter: {} {} {}",
                         filter.column,
+                        filter.op.symbol(),
                         filter.value.display_value()
                     )?;
                 }
