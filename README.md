@@ -300,10 +300,13 @@ The engine tests cover:
 - persistence across restart
 - delete tombstones
 - planner and index behavior
+- update parsing and planner behavior
+- update persistence and indexed-column maintenance
 - `LIMIT`
 - multi-statement execution
 - schema inspection
 - transaction rollback and commit behavior
+- pager savepoint behavior for failed updates
 - WAL recovery
 
 Run:
