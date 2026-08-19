@@ -1,5 +1,7 @@
 # SlateDB
 
+[![CI](https://github.com/mr2buzi/Database-Control-Room/actions/workflows/ci.yml/badge.svg)](https://github.com/mr2buzi/Database-Control-Room/actions/workflows/ci.yml)
+
 Rust storage engine + desktop database workbench.
 
 SlateDB is a single-process relational database prototype written in Rust, paired with an Electron + React workbench for inspecting query plans, execution stats, schema state, and result rows from the real engine.
@@ -44,11 +46,12 @@ Workbench:
 
 Architecture:
 
-```text
-React UI
-  -> Electron IPC
-  -> Rust CLI engine
-  -> page file + WAL
+```mermaid
+flowchart LR
+    UI[React workbench] --> IPC[Electron IPC]
+    IPC --> E[Rust database engine]
+    E --> P[(Page file)]
+    E --> W[(Write-ahead log)]
 ```
 
 Tech:
@@ -58,7 +61,7 @@ Tech:
 - Electron
 - TypeScript
 
-## Why This Project Is Interesting
+## Engineering Depth
 
 The goal of this project was to build something deeper than a typical CRUD application. Many student "database" projects stop at serializing objects to disk. SlateDB implements the pieces that make it behave like a database system:
 
@@ -332,15 +335,15 @@ Other useful next steps:
 
 For a quick walkthrough, these are the best starting points:
 
-- [src/App.tsx](c:/Users/User/Documents/project%202/src/App.tsx)
-- [src/queryEngine.ts](c:/Users/User/Documents/project%202/src/queryEngine.ts)
-- [electron/main.cjs](c:/Users/User/Documents/project%202/electron/main.cjs)
-- [electron/slatedb-runtime.cjs](c:/Users/User/Documents/project%202/electron/slatedb-runtime.cjs)
-- [engine/src/executor.rs](c:/Users/User/Documents/project%202/engine/src/executor.rs)
-- [engine/src/parser.rs](c:/Users/User/Documents/project%202/engine/src/parser.rs)
-- [engine/src/storage/pager.rs](c:/Users/User/Documents/project%202/engine/src/storage/pager.rs)
-- [engine/src/index/btree.rs](c:/Users/User/Documents/project%202/engine/src/index/btree.rs)
+- [src/App.tsx](src/App.tsx)
+- [src/queryEngine.ts](src/queryEngine.ts)
+- [electron/main.cjs](electron/main.cjs)
+- [electron/slatedb-runtime.cjs](electron/slatedb-runtime.cjs)
+- [engine/src/executor.rs](engine/src/executor.rs)
+- [engine/src/parser.rs](engine/src/parser.rs)
+- [engine/src/storage/pager.rs](engine/src/storage/pager.rs)
+- [engine/src/index/btree.rs](engine/src/index/btree.rs)
 
-## Resume Version
+## Project Summary
 
 Built a Rust storage engine and desktop database workbench with handwritten SQL parsing, page-based heap storage, B+ tree indexing, transactional execution, and WAL-backed crash recovery, with planner and execution details exposed through an Electron UI.
