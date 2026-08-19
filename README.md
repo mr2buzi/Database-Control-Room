@@ -6,6 +6,10 @@ Rust storage engine + desktop database workbench.
 
 SlateDB is a single-process relational database prototype written in Rust, paired with an Electron + React workbench for inspecting query plans, execution stats, schema state, and result rows from the real engine.
 
+## Workbench preview
+
+![SlateDB Control Room workbench](docs/images/workbench.png)
+
 ## Release Notes
 
 ### v1.3.0

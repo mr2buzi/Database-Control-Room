@@ -339,7 +339,7 @@ export function App() {
                 <p>
                   {result.status === "warning"
                     ? "The current statement read more rows than it returned. That is useful HCI feedback when you want to discuss indexing, planner choices, or query refinement."
-                    : "The workbench is showing the planner and execution story coming from the active runtime, which makes the interface useful for both demos and interview walkthroughs."}
+                    : "The workbench is showing the planner and execution story coming from the active runtime, which makes the interface useful for demos and technical walkthroughs."}
                 </p>
               </article>
 
