@@ -241,9 +241,9 @@ cd engine
 cargo run -- bench --data .\target\bench.sdb
 ```
 
-## Demo Flow
+## Example Workflow
 
-Recommended interview demo flow:
+A representative usage sequence:
 
 1. Launch `npm run desktop`
 2. Run:
